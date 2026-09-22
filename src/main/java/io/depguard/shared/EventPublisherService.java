@@ -4,11 +4,11 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 
 @Service
-public class SpringEventPublisher {
+public class EventPublisherService {
 
     private final ApplicationEventPublisher publisher;
 
-    SpringEventPublisher(ApplicationEventPublisher publisher) {
+    EventPublisherService(ApplicationEventPublisher publisher) {
         this.publisher = publisher;
     }
 

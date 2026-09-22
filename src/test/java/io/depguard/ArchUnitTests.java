@@ -5,6 +5,7 @@ import static com.tngtech.archunit.core.domain.JavaModifier.PRIVATE;
 import static com.tngtech.archunit.core.domain.JavaModifier.STATIC;
 
 import com.enofex.taikai.Taikai;
+import com.enofex.taikai.TaikaiRule;
 import com.enofex.taikai.java.ImportsConfigurer;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -18,7 +19,11 @@ class ArchUnitTests {
     void shouldFulfillConstraints() {
         Taikai.builder()
                 .namespace(BASE_PACKAGE)
-                .java(java -> java.noUsageOfDeprecatedAPIs()
+                .java(java -> java
+                        // Maven 3.9's ModelResolver contract forces the deprecated-shim ModelSource type in
+                        // io.depguard.dependency.MavenModelResolver; revisited when Maven Resolver 2.x is adopted.
+                        .noUsageOfDeprecatedAPIs(TaikaiRule.Configuration.of(
+                                BASE_PACKAGE, List.of("io.depguard.dependency.MavenModelResolver")))
                         .methodsShouldNotDeclareGenericExceptions()
                         .utilityClassesShouldBeFinalAndHavePrivateConstructor()
                         .imports(ImportsConfigurer::shouldHaveNoCycles)

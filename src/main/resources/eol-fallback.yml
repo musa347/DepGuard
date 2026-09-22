@@ -1,0 +1,124 @@
+# Embedded EOL fallback dataset — used when the endoflife.date API is unavailable.
+#
+# Data is sourced from https://endoflife.date and should be refreshed periodically.
+# Last updated: 2026-09-22
+#
+# Format:
+#   product:   the endoflife.date product slug (matches eol-mappings.yml)
+#   cycle:     major.minor version string (e.g. "2.7")
+#   eol:       ISO-8601 date on which the cycle became/becomes EOL, or null if still supported
+#
+# Status derivation follows the same rules as the live API:
+#   - null eol date   → SUPPORTED
+#   - eol date ≤ today → EOL
+#   - eol date > today → MAINTENANCE
+
+cycles:
+  # Spring Boot — https://endoflife.date/spring-boot
+  - product: "spring-boot"
+    cycle: "2.5"
+    eol: "2022-05-19"
+  - product: "spring-boot"
+    cycle: "2.6"
+    eol: "2022-11-24"
+  - product: "spring-boot"
+    cycle: "2.7"
+    eol: "2023-11-24"
+  - product: "spring-boot"
+    cycle: "3.0"
+    eol: "2023-11-24"
+  - product: "spring-boot"
+    cycle: "3.1"
+    eol: "2024-02-23"
+  - product: "spring-boot"
+    cycle: "3.2"
+    eol: "2025-02-23"
+  - product: "spring-boot"
+    cycle: "3.3"
+    eol: "2025-08-22"
+  - product: "spring-boot"
+    cycle: "3.4"
+    eol: null
+
+  # Spring Framework — https://endoflife.date/spring-framework
+  - product: "spring-framework"
+    cycle: "5.2"
+    eol: "2022-12-31"
+  - product: "spring-framework"
+    cycle: "5.3"
+    eol: "2024-12-31"
+  - product: "spring-framework"
+    cycle: "6.0"
+    eol: "2024-08-30"
+  - product: "spring-framework"
+    cycle: "6.1"
+    eol: "2026-02-28"
+  - product: "spring-framework"
+    cycle: "6.2"
+    eol: null
+
+  # Hibernate ORM — https://endoflife.date/hibernate-orm
+  - product: "hibernate-orm"
+    cycle: "5.4"
+    eol: "2022-03-31"
+  - product: "hibernate-orm"
+    cycle: "5.6"
+    eol: "2023-03-31"
+  - product: "hibernate-orm"
+    cycle: "6.1"
+    eol: "2023-09-30"
+  - product: "hibernate-orm"
+    cycle: "6.2"
+    eol: "2024-03-31"
+  - product: "hibernate-orm"
+    cycle: "6.4"
+    eol: "2024-09-30"
+  - product: "hibernate-orm"
+    cycle: "6.5"
+    eol: null
+  - product: "hibernate-orm"
+    cycle: "6.6"
+    eol: null
+
+  # Apache Tomcat — https://endoflife.date/tomcat
+  - product: "tomcat"
+    cycle: "8.5"
+    eol: "2024-03-31"
+  - product: "tomcat"
+    cycle: "9.0"
+    eol: "2026-03-31"
+  - product: "tomcat"
+    cycle: "10.0"
+    eol: "2022-10-31"
+  - product: "tomcat"
+    cycle: "10.1"
+    eol: null
+  - product: "tomcat"
+    cycle: "11.0"
+    eol: null
+
+  # Apache Log4j — https://endoflife.date/log4j
+  - product: "log4j"
+    cycle: "2.12"
+    eol: "2021-12-14"
+  - product: "log4j"
+    cycle: "2.13"
+    eol: "2021-12-14"
+  - product: "log4j"
+    cycle: "2.14"
+    eol: "2021-12-14"
+  - product: "log4j"
+    cycle: "2.15"
+    eol: "2021-12-14"
+  - product: "log4j"
+    cycle: "2.16"
+    eol: "2021-12-14"
+  - product: "log4j"
+    cycle: "2.17"
+    eol: "2022-02-28"
+  - product: "log4j"
+    cycle: "2.19"
+    eol: "2023-06-30"
+  - product: "log4j"
+    cycle: "2.23"
+    eol: null
