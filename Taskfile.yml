@@ -1,0 +1,63 @@
+version: '3'
+
+vars:
+  GOOS: "{{default OS .GOOS}}"
+  MVNW: '{{if eq .GOOS "windows"}}mvnw.cmd{{else}}./mvnw{{end}}'
+  SLEEP_CMD: '{{if eq .GOOS "windows"}}timeout{{else}}sleep{{end}}'
+  COMPOSE_FILE: "./compose.yml"
+
+tasks:
+  default:
+    cmds:
+      - task: build
+
+  build:
+    desc: Format, run all tests, and build the application
+    cmds:
+      - "{{.MVNW}} clean spotless:apply verify"
+
+  test:
+    desc: Run tests only (no formatting)
+    cmds:
+      - "{{.MVNW}} test"
+
+  format:
+    desc: Apply Spotless formatting
+    cmds:
+      - "{{.MVNW}} spotless:apply"
+
+  build_docker_image:
+    desc: Build Docker image using Paketo Buildpacks
+    cmds:
+      - "{{.MVNW}} clean compile spring-boot:build-image -DskipTests"
+
+  start:
+    desc: Build Docker image and start the full stack
+    deps: [ build_docker_image ]
+    cmds:
+      - docker compose -f "{{.COMPOSE_FILE}}" up --force-recreate -d
+
+  stop:
+    desc: Stop and remove all containers
+    cmds:
+      - docker compose -f "{{.COMPOSE_FILE}}" stop
+      - docker compose -f "{{.COMPOSE_FILE}}" rm -f
+
+  restart:
+    desc: Restart the full stack
+    cmds:
+      - task: stop
+      - task: sleep
+      - task: start
+
+  dev:
+    desc: Run the app locally (requires Docker for compose services)
+    cmds:
+      - "{{.MVNW}} spring-boot:run"
+
+  sleep:
+    desc: Sleep for DURATION seconds (default 5)
+    vars:
+      DURATION: "{{default 5 .DURATION}}"
+    cmds:
+      - "{{.SLEEP_CMD}} {{.DURATION}}"
