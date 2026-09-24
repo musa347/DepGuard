@@ -1,11 +1,10 @@
 package io.depguard.eol;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.verify;
 
-import io.depguard.scan.ScanRepository;
+import io.depguard.dependency.ScanDependencyRepository;
 import io.depguard.shared.ScanId;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -29,14 +28,14 @@ class EolControllerTest {
     EolService eolService;
 
     @MockitoBean
-    ScanRepository scanRepository;
+    ScanDependencyRepository scanDependencyRepository;
 
     @MockitoBean
     EolRepository eolRepository;
 
     @Test
     void triggersEolCheckAndReturnsAccepted() {
-        given(scanRepository.existsById(any(ScanId.class))).willReturn(true);
+        given(scanDependencyRepository.existsById_ScanId(SCAN_ID)).willReturn(true);
         ScanId id = ScanId.of(SCAN_ID);
 
         assertThat(mockMvc.post().uri("/api/scans/{id}/eol-check", SCAN_ID))
@@ -50,7 +49,7 @@ class EolControllerTest {
 
     @Test
     void returnsNotFoundWhenScanDoesNotExist() {
-        given(scanRepository.existsById(any(ScanId.class))).willReturn(false);
+        given(scanDependencyRepository.existsById_ScanId(SCAN_ID)).willReturn(false);
 
         assertThat(mockMvc.post().uri("/api/scans/{id}/eol-check", SCAN_ID))
                 .hasStatus(HttpStatus.NOT_FOUND)
@@ -61,7 +60,7 @@ class EolControllerTest {
 
     @Test
     void returnsEolReportWhenEnrichmentHasRun() {
-        given(scanRepository.existsById(any(ScanId.class))).willReturn(true);
+        given(scanDependencyRepository.existsById_ScanId(SCAN_ID)).willReturn(true);
         ScanId id = ScanId.of(SCAN_ID);
         EolDependencyEntry entry = new EolDependencyEntry(
                 "org.springframework.boot",
@@ -88,7 +87,7 @@ class EolControllerTest {
 
     @Test
     void returnsEmptyListWhenNoEnrichmentHasRun() {
-        given(scanRepository.existsById(any(ScanId.class))).willReturn(true);
+        given(scanDependencyRepository.existsById_ScanId(SCAN_ID)).willReturn(true);
 
         assertThat(mockMvc.get().uri("/api/scans/{id}/eol", SCAN_ID))
                 .hasStatus(HttpStatus.OK)
@@ -100,7 +99,7 @@ class EolControllerTest {
 
     @Test
     void returnsNotFoundWhenScanDoesNotExistOnGet() {
-        given(scanRepository.existsById(any(ScanId.class))).willReturn(false);
+        given(scanDependencyRepository.existsById_ScanId(SCAN_ID)).willReturn(false);
 
         assertThat(mockMvc.get().uri("/api/scans/{id}/eol", SCAN_ID))
                 .hasStatus(HttpStatus.NOT_FOUND)

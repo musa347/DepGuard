@@ -20,7 +20,8 @@ import java.util.Objects;
 @Table(name = "projects")
 class Project extends BaseEntity {
 
-    static final String DEFAULT_BRANCH = "main";
+    /** Sentinel value meaning "use the remote's default branch". */
+    static final String DEFAULT_BRANCH = null;
 
     @EmbeddedId
     @AttributeOverride(name = "id", column = @Column(name = "id", nullable = false, length = 26))
@@ -32,7 +33,7 @@ class Project extends BaseEntity {
     @Column(name = "repository_url", nullable = false, length = 512)
     private String repositoryUrl;
 
-    @Column(name = "default_branch", nullable = false)
+    @Column(name = "default_branch", nullable = true)
     private String defaultBranch;
 
     /** Required by JPA. */

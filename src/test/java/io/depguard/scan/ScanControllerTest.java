@@ -5,6 +5,11 @@ import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.verify;
 
 import io.depguard.project.ProjectId;
+import io.depguard.remediation.RemediationResponse;
+import io.depguard.remediation.RemediationService;
+import io.depguard.remediation.UpgradeType;
+import io.depguard.risk.RiskConfidence;
+import io.depguard.risk.RiskLevel;
 import io.depguard.shared.ResourceNotFoundException;
 import io.depguard.shared.ScanId;
 import java.time.Instant;
@@ -39,6 +44,12 @@ class ScanControllerTest {
 
     @MockitoBean
     ScanService scanService;
+
+    @MockitoBean
+    RemediationService remediationService;
+
+    @MockitoBean
+    ScanReportService scanReportService;
 
     @Test
     void startsAScanAndReturnsTheIdToPoll() {
@@ -112,5 +123,47 @@ class ScanControllerTest {
                 .isEqualTo("Scan not found: " + SCAN_ID);
 
         verify(scanService).getScan(ScanId.of(SCAN_ID));
+    }
+
+    @Test
+    void returnsCompatibilityAwareRecommendations() {
+        given(remediationService.getRecommendations(ScanId.of(SCAN_ID)))
+                .willReturn(List.of(new RemediationResponse(
+                        "0RZKMN9SVD511",
+                        "2.7.18",
+                        "3.4.1",
+                        UpgradeType.MAJOR,
+                        "Spring Boot 2.x → 3.x requires javax → jakarta migration and Java 17+.",
+                        "No supported same-major version was found; migration is required.",
+                        RiskConfidence.MEDIUM)));
+
+        assertThat(mockMvc.get().uri("/api/scans/{id}/recommendations", SCAN_ID))
+                .hasStatusOk()
+                .bodyJson()
+                .extractingPath("$[0].upgradeType")
+                .isEqualTo("MAJOR");
+    }
+
+    @Test
+    void returnsACompleteReportForACompletedScan() {
+        given(scanReportService.getReport(ScanId.of(SCAN_ID)))
+                .willReturn(new ScanReportDto(
+                        SCAN_ID,
+                        "payment-service",
+                        "https://github.com/depguard/payment-service",
+                        "a3f9d1c8b2e4f6a0d5c7e9f1b3a5d7e9c1a3b5d7",
+                        "main",
+                        Instant.parse("2026-09-22T10:00:20Z"),
+                        RiskLevel.HIGH,
+                        new ScanReportDto.DataSources(
+                                Instant.parse("2026-09-22T10:00:10Z"), Instant.parse("2026-09-22T10:00:11Z")),
+                        new ScanReportDto.Summary(1, 1, 1, 0, 1, 0, 0, 0),
+                        List.of()));
+
+        assertThat(mockMvc.get().uri("/api/scans/{id}/report", SCAN_ID))
+                .hasStatusOk()
+                .bodyJson()
+                .extractingPath("$.overallHealth")
+                .isEqualTo("HIGH");
     }
 }

@@ -46,12 +46,12 @@ class ProjectServiceTest {
         verify(projectRepository).save(saved.capture());
         assertThat(saved.getValue().getId()).isNotNull();
         assertThat(saved.getValue().getRepositoryUrl()).isEqualTo(PAYMENT_SERVICE_URL);
-        assertThat(saved.getValue().getDefaultBranch()).isEqualTo("main");
+        assertThat(saved.getValue().getDefaultBranch()).isNull();
 
         assertThat(result.id()).isNotNull();
         assertThat(result.name()).isEqualTo("payment-service");
         assertThat(result.repositoryUrl()).isEqualTo(PAYMENT_SERVICE_URL);
-        assertThat(result.defaultBranch()).isEqualTo("main");
+        assertThat(result.defaultBranch()).isNull();
     }
 
     @Test

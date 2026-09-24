@@ -1,6 +1,7 @@
 package io.depguard.config;
 
 import io.depguard.shared.ResourceNotFoundException;
+import io.depguard.shared.ScanNotReadyException;
 import java.time.Instant;
 import java.util.Arrays;
 import java.util.List;
@@ -75,6 +76,12 @@ class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     ProblemDetail handleResourceNotFound(ResourceNotFoundException ex) {
         LOG.warn("Resource not found: {}", ex.getMessage());
         return withErrors(problem(HttpStatus.NOT_FOUND, "Not Found", ERROR_NOT_FOUND, ex.getMessage()));
+    }
+
+    @ExceptionHandler(ScanNotReadyException.class)
+    ProblemDetail handleScanNotReady(ScanNotReadyException ex) {
+        LOG.warn("Scan report not ready: {}", ex.getMessage());
+        return withErrors(problem(HttpStatus.CONFLICT, "Conflict", "SCAN_NOT_READY", ex.getMessage()));
     }
 
     @ExceptionHandler(Exception.class)

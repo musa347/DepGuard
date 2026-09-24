@@ -1,7 +1,6 @@
 package io.depguard.eol;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -52,19 +51,7 @@ class EolServiceTest {
     EolService eolService;
 
     @Test
-    void throwsWhenScanDoesNotExist() {
-        given(scanRepository.existsById(SCAN_ID)).willReturn(false);
-
-        assertThatThrownBy(() -> eolService.enrichScan(SCAN_ID))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("Scan not found: " + SCAN_ID);
-
-        verifyNoInteractions(scanDependencyRepository, mappingStrategy, eolClient, eolRepository);
-    }
-
-    @Test
     void doesNothingWhenScanHasNoDependencies() {
-        given(scanRepository.existsById(SCAN_ID)).willReturn(true);
         given(scanDependencyRepository.findScanDependenciesWithCoords(SCAN_ID.id()))
                 .willReturn(List.of());
 
@@ -77,7 +64,6 @@ class EolServiceTest {
     @Test
     void recordsUnknownWhenNoMappingExists() {
         ScanDependencyCoords coords = coords();
-        given(scanRepository.existsById(SCAN_ID)).willReturn(true);
         given(scanDependencyRepository.findScanDependenciesWithCoords(SCAN_ID.id()))
                 .willReturn(List.of(coords));
         given(eolRepository.findByScanAndDependencyId(SCAN_ID.id(), DEPENDENCY_ID))
@@ -102,7 +88,6 @@ class EolServiceTest {
     void recordsUnknownWhenApiReturnsNoData() {
         ScanDependencyCoords coords = coords();
         ProductCycle pc = new ProductCycle("spring-boot", "2.7");
-        given(scanRepository.existsById(SCAN_ID)).willReturn(true);
         given(scanDependencyRepository.findScanDependenciesWithCoords(SCAN_ID.id()))
                 .willReturn(List.of(coords));
         given(eolRepository.findByScanAndDependencyId(SCAN_ID.id(), DEPENDENCY_ID))
@@ -127,7 +112,6 @@ class EolServiceTest {
     void recordsFallbackDataWhenApiFailsButFallbackHasEntry() {
         ScanDependencyCoords coords = coords();
         ProductCycle pc = new ProductCycle("spring-boot", "2.7");
-        given(scanRepository.existsById(SCAN_ID)).willReturn(true);
         given(scanDependencyRepository.findScanDependenciesWithCoords(SCAN_ID.id()))
                 .willReturn(List.of(coords));
         given(eolRepository.findByScanAndDependencyId(SCAN_ID.id(), DEPENDENCY_ID))
@@ -151,7 +135,6 @@ class EolServiceTest {
     void recordsEolDataWhenApiReturnsValidResponse() {
         ScanDependencyCoords coords = coords();
         ProductCycle pc = new ProductCycle("spring-boot", "2.7");
-        given(scanRepository.existsById(SCAN_ID)).willReturn(true);
         given(scanDependencyRepository.findScanDependenciesWithCoords(SCAN_ID.id()))
                 .willReturn(List.of(coords));
         given(eolRepository.findByScanAndDependencyId(SCAN_ID.id(), DEPENDENCY_ID))

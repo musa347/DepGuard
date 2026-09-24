@@ -22,15 +22,15 @@ on every request. DepGuard's risk engine accounts for that difference.
 
 ## Quick Start
 
-**Prerequisites:** Docker, Docker Compose
+**Prerequisites:** Java 21 and Docker Compose
 
 ```bash
 git clone https://github.com/your-username/depguard.git
 cd depguard
-docker compose up
+./mvnw spring-boot:run
 ```
 
-The API is ready when you see:
+Spring Boot starts the PostgreSQL service declared in `compose.yml` automatically. The API is ready when you see:
 ```
 depguard  | Started DepGuardApplication in X.XXX seconds
 ```
@@ -54,7 +54,7 @@ curl -s -X POST http://localhost:8080/api/projects \
 
 ```json
 {
-  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "id": "0RZKMN9SVD510",
   "name": "payment-service",
   "repositoryUrl": "https://github.com/your-org/payment-service",
   "createdAt": "2026-09-21T16:00:00Z"
@@ -67,26 +67,26 @@ Returns `202 Accepted` immediately — scan runs asynchronously.
 
 ```bash
 curl -s -X POST \
-  http://localhost:8080/api/projects/550e8400-e29b-41d4-a716-446655440000/scans | jq .
+  http://localhost:8080/api/projects/0RZKMN9SVD510/scans | jq .
 ```
 
 ```json
 {
-  "scanId": "7c9e6679-7425-40de-944b-e07fc1f90ae7"
+  "scanId": "0RZKMN9SVD511"
 }
 ```
 
 ### 3. Poll scan status
 
 ```bash
-curl -s http://localhost:8080/api/scans/7c9e6679-7425-40de-944b-e07fc1f90ae7 | jq .status
+curl -s http://localhost:8080/api/scans/0RZKMN9SVD511 | jq .status
 # "COMPLETED"
 ```
 
 ### 4. Get the health report
 
 ```bash
-curl -s http://localhost:8080/api/scans/7c9e6679-7425-40de-944b-e07fc1f90ae7/report | jq .
+curl -s http://localhost:8080/api/scans/0RZKMN9SVD511/report | jq .
 ```
 
 ```json
@@ -96,12 +96,7 @@ curl -s http://localhost:8080/api/scans/7c9e6679-7425-40de-944b-e07fc1f90ae7/rep
   "branch": "main",
   "scannedAt": "2026-09-21T16:00:00Z",
   "overallHealth": "HIGH",
-  "dataSources": {
-    "eolApi": "endoflife.date",
-    "eolFetchedAt": "2026-09-21T16:01:12Z",
-    "advisoryApi": "api.osv.dev",
-    "advisoryFetchedAt": "2026-09-21T16:01:15Z"
-  },
+  "dataSources": { "eolFetchedAt": "2026-09-21T16:01:12Z", "advisoryFetchedAt": "2026-09-21T16:01:15Z" },
   "summary": {
     "totalDependencies": 47,
     "eolCount": 5,
@@ -124,7 +119,7 @@ curl -s http://localhost:8080/api/scans/7c9e6679-7425-40de-944b-e07fc1f90ae7/rep
       "riskLevel": "CRITICAL",
       "heuristicScore": 72,
       "confidence": "HIGH",
-      "riskReasons": ["EOL (+30)", "Advisory GHSA-xxxx HIGH (+30)", "direct (×1.0)"],
+      "riskReasons": ["EOL (+30)", "Advisory HIGH (+30)", "Direct dependency (×1.0)"],
       "recommendation": {
         "recommendedVersion": "3.4.1",
         "upgradeType": "MAJOR",
@@ -140,13 +135,13 @@ curl -s http://localhost:8080/api/scans/7c9e6679-7425-40de-944b-e07fc1f90ae7/rep
 ### 5. Get remediation recommendations only
 
 ```bash
-curl -s http://localhost:8080/api/scans/7c9e6679.../recommendations | jq .
+curl -s http://localhost:8080/api/scans/0RZKMN9SVD511/recommendations | jq .
 ```
 
 ```json
 [
   {
-    "artifactId": "spring-boot-starter",
+    "dependencyId": "0RZKMN9SVD512",
     "currentVersion": "2.7.18",
     "recommendedVersion": "3.4.1",
     "upgradeType": "MAJOR",
@@ -286,7 +281,7 @@ the report so engineers can investigate manually.
 |-------|------------|
 | Language | Java 21 |
 | Framework | Spring Boot 4.x |
-| Persistence | Spring Data JPA + PostgreSQL 16 |
+| Persistence | Spring Data JPA + PostgreSQL 18 |
 | Migrations | Flyway |
 | Dependency resolution | Apache Maven Resolver API (no Maven build execution) |
 | Git operations | JGit (HTTPS, public GitHub repos only) |
@@ -316,7 +311,7 @@ depguard/
 │       ├── java/                   Unit + integration tests
 │       └── resources/
 │           └── test-pom.xml        Test fixture for dependency resolution
-├── docker-compose.yml
+├── compose.yml
 ├── pom.xml
 ├── IMPLEMENTATION_PLAN.md
 ├── RFC-0001-depguard.md            Engineering RFC
@@ -329,27 +324,26 @@ depguard/
 
 **Run locally (without Docker):**
 
-Requirements: Java 21, Maven 3.9+, PostgreSQL 16 on localhost:5432
+Requirements: Java 21. Spring Boot Docker Compose support starts PostgreSQL automatically when Docker is available.
 
 ```bash
 export DB_URL=jdbc:postgresql://localhost:5432/depguard
 export DB_USERNAME=depguard
 export DB_PASSWORD=secret
 
-mvn spring-boot:run
+./mvnw spring-boot:run
 ```
 
 **Run tests:**
 
 ```bash
-mvn test
+JAVA_HOME=/path/to/jdk-21 ./mvnw test
 ```
 
 **Build:**
 
 ```bash
-mvn package -DskipTests
-docker compose build
+./mvnw package -DskipTests
 ```
 
 ---

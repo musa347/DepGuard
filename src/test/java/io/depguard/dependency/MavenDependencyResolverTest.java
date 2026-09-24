@@ -133,6 +133,61 @@ class MavenDependencyResolverTest {
     }
 
     @Test
+    void resolvesMultiModuleProjectByMergingAllSubmoduleDependencies() throws IOException {
+        // Arrange: root aggregator POM with one submodule
+        String rootPom = """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <project>
+                  <modelVersion>4.0.0</modelVersion>
+                  <groupId>com.example</groupId>
+                  <artifactId>multi-parent</artifactId>
+                  <version>1.0</version>
+                  <packaging>pom</packaging>
+                  <modules>
+                    <module>child</module>
+                  </modules>
+                </project>
+                """;
+        // Child declares a real, small dependency so the resolver can fetch its metadata.
+        String childPom = """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <project>
+                  <modelVersion>4.0.0</modelVersion>
+                  <parent>
+                    <groupId>com.example</groupId>
+                    <artifactId>multi-parent</artifactId>
+                    <version>1.0</version>
+                  </parent>
+                  <artifactId>child</artifactId>
+                  <dependencies>
+                    <dependency>
+                      <groupId>org.apache.logging.log4j</groupId>
+                      <artifactId>log4j-core</artifactId>
+                      <version>2.13.3</version>
+                    </dependency>
+                  </dependencies>
+                </project>
+                """;
+        Files.writeString(projectDirectory.resolve("pom.xml"), rootPom);
+        Path childDir = Files.createDirectories(projectDirectory.resolve("child"));
+        Files.writeString(childDir.resolve("pom.xml"), childPom);
+
+        // Act
+        List<ResolvedDependency> dependencies = resolver.resolveDependencies(projectDirectory);
+
+        // Assert: log4j-core (direct in child) surfaces as a direct dependency of the aggregate
+        assertThat(dependency(dependencies, "org.apache.logging.log4j", "log4j-core"))
+                .isPresent()
+                .get()
+                .satisfies(dep -> {
+                    assertThat(dep.version()).isEqualTo("2.13.3");
+                    assertThat(dep.direct()).isTrue();
+                });
+        // Transitives of log4j-core should also appear
+        assertThat(dependencies.stream().anyMatch(dep -> !dep.direct())).isTrue();
+    }
+
+    @Test
     void failsWhenTheDirectoryHasNoPom() throws IOException {
         Path emptyDirectory = Files.createDirectories(projectDirectory.resolve("empty"));
 

@@ -1,6 +1,8 @@
 package io.depguard.scan;
 
 import io.depguard.project.ProjectId;
+import io.depguard.remediation.RemediationResponse;
+import io.depguard.remediation.RemediationService;
 import io.depguard.shared.ScanId;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -17,9 +19,14 @@ import org.springframework.web.bind.annotation.RestController;
 class ScanController {
 
     private final ScanService scanService;
+    private final RemediationService remediationService;
+    private final ScanReportService scanReportService;
 
-    ScanController(ScanService scanService) {
+    ScanController(
+            ScanService scanService, RemediationService remediationService, ScanReportService scanReportService) {
         this.scanService = scanService;
+        this.remediationService = remediationService;
+        this.scanReportService = scanReportService;
     }
 
     @Operation(
@@ -40,5 +47,17 @@ class ScanController {
     @GetMapping("/scans/{id}")
     ScanResponse getScan(@PathVariable ScanId id) {
         return scanService.getScan(id);
+    }
+
+    @Operation(summary = "Get remediation recommendations")
+    @GetMapping("/scans/{id}/recommendations")
+    java.util.List<RemediationResponse> getRecommendations(@PathVariable ScanId id) {
+        return remediationService.getRecommendations(id);
+    }
+
+    @Operation(summary = "Get complete reproducible scan report")
+    @GetMapping("/scans/{id}/report")
+    ScanReportDto getReport(@PathVariable ScanId id) {
+        return scanReportService.getReport(id);
     }
 }

@@ -13,6 +13,8 @@ import io.depguard.eol.EolService;
 import io.depguard.project.ProjectAPI;
 import io.depguard.project.ProjectId;
 import io.depguard.project.ProjectSnapshot;
+import io.depguard.remediation.RemediationService;
+import io.depguard.risk.RiskScoringService;
 import io.depguard.shared.ResourceNotFoundException;
 import io.depguard.shared.ScanId;
 import io.depguard.vulnerability.VulnerabilityService;
@@ -53,6 +55,8 @@ public class ScanService {
 
     private final EolService eolService;
     private final VulnerabilityService vulnerabilityService;
+    private final RiskScoringService riskScoringService;
+    private final RemediationService remediationService;
 
     ScanService(
             ScanRepository scanRepository,
@@ -63,7 +67,9 @@ public class ScanService {
             ScanDependencyRepository scanDependencyRepository,
             TransactionTemplate transactionTemplate,
             EolService eolService,
-            VulnerabilityService vulnerabilityService) {
+            VulnerabilityService vulnerabilityService,
+            RiskScoringService riskScoringService,
+            RemediationService remediationService) {
         this.scanRepository = scanRepository;
         this.projectAPI = projectAPI;
         this.gitCloneService = gitCloneService;
@@ -73,6 +79,8 @@ public class ScanService {
         this.transactionTemplate = transactionTemplate;
         this.eolService = eolService;
         this.vulnerabilityService = vulnerabilityService;
+        this.riskScoringService = riskScoringService;
+        this.remediationService = remediationService;
     }
 
     /**
@@ -89,41 +97,64 @@ public class ScanService {
     /**
      * Runs the scan pipeline. Only scans still in {@link ScanStatus#PENDING} are executed, so a scan can
      * never run twice.
+     *
+     * <p>Each database write is wrapped in its own {@code transactionTemplate} call so that rows are
+     * committed and visible to the enrichment threads before they start. {@code @Transactional} is
+     * intentionally absent: a single outer transaction would hold all writes open until the method
+     * returns, making the dependency rows invisible to the parallel {@code CompletableFuture} calls that
+     * run on separate threads with no inherited transaction context.
      */
     @Async(AsyncScanConfig.SCAN_EXECUTOR)
-    @Transactional
     public void runScan(ScanId scanId) {
-        Scan scan = scanRepository.findById(scanId).orElse(null);
-        if (scan == null || scan.getStatus() != ScanStatus.PENDING) {
-            LOG.warn("Scan {} is not pending — skipping execution", scanId);
+        Scan scan = transactionTemplate.execute(status -> {
+            Scan s = scanRepository.findById(scanId).orElse(null);
+            if (s == null || s.getStatus() != ScanStatus.PENDING) {
+                LOG.warn("Scan {} is not pending — skipping execution", scanId);
+                return null;
+            }
+            s.markRunning();
+            return scanRepository.save(s);
+        });
+        if (scan == null) {
             return;
         }
-        scan.markRunning();
-        scan = scanRepository.save(scan);
         LOG.info("Scan {} started", scanId);
         try {
             ProjectSnapshot project = projectAPI.getProject(scan.getProjectId());
+            final Scan[] scanRef = {scan};
             try (io.depguard.dependency.CloneResult clone =
                     gitCloneService.cloneRepository(project.repositoryUrl(), project.defaultBranch())) {
-                scan.cloned(clone.commitSha(), clone.branch());
-                scan = scanRepository.save(scan);
                 List<ResolvedDependency> dependencies =
                         dependencyResolver.resolveDependencies(clone.workingDirectory());
-                transactionTemplate.executeWithoutResult(status -> persist(scanId, dependencies));
-                LOG.info("Scan {} resolved {} dependencies", scanId, dependencies.size());
+                // Commit clone metadata + dependency rows in one transaction before releasing the clone.
+                final List<ResolvedDependency> deps = dependencies;
+                transactionTemplate.executeWithoutResult(status -> {
+                    scanRef[0].cloned(clone.commitSha(), clone.branch());
+                    scanRepository.save(scanRef[0]);
+                    persist(scanId, deps);
+                });
+                LOG.info("Scan {} resolved {} dependencies", scanId, deps.size());
             }
-            // EOL + advisory enrichment run in parallel after the dependency tree is committed.
+            // EOL + advisory enrichment run in parallel — dependency rows are now committed.
             CompletableFuture<Void> eolFuture = CompletableFuture.runAsync(() -> eolService.enrichScan(scanId));
             CompletableFuture<Void> vulnFuture =
                     CompletableFuture.runAsync(() -> vulnerabilityService.enrichScan(scanId));
             CompletableFuture.allOf(eolFuture, vulnFuture).join();
-            scan.markCompleted();
-            scan = scanRepository.save(scan);
+            riskScoringService.scoreScan(scanId);
+            remediationService.generateRecommendations(scanId);
+            transactionTemplate.executeWithoutResult(status -> {
+                Scan s = scanRepository.findById(scanId).orElseThrow();
+                s.markCompleted();
+                scanRepository.save(s);
+            });
             LOG.info("Scan {} completed", scanId);
         } catch (Exception ex) {
             LOG.error("Scan {} failed", scanId, ex);
-            scan.markFailed(errorMessageOf(ex));
-            scan = scanRepository.save(scan);
+            transactionTemplate.executeWithoutResult(status -> {
+                Scan s = scanRepository.findById(scanId).orElseThrow();
+                s.markFailed(errorMessageOf(ex));
+                scanRepository.save(s);
+            });
         }
     }
 

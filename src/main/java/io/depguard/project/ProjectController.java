@@ -6,6 +6,7 @@ import jakarta.validation.Valid;
 import java.net.URI;
 import java.util.List;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -48,5 +49,14 @@ class ProjectController {
     @GetMapping("/{id}")
     ProjectResponse getProject(@PathVariable ProjectId id) {
         return ProjectResponse.from(projectService.getProject(id));
+    }
+
+    @Operation(
+            summary = "Delete a project",
+            description = "Removes the project and all its scans. Returns 404 if not found.")
+    @DeleteMapping("/{id}")
+    ResponseEntity<Void> deleteProject(@PathVariable ProjectId id) {
+        projectService.deleteProject(id);
+        return ResponseEntity.noContent().build();
     }
 }

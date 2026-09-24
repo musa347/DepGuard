@@ -77,6 +77,10 @@ public class MavenDependencyResolver {
     /**
      * Resolves every dependency of the project in {@code projectDirectory} — direct and transitive.
      *
+     * <p>For multi-module projects (root POM with {@code <packaging>pom</packaging>} and
+     * {@code <modules>}), dependencies are collected from every declared submodule and merged.
+     * A dependency that is direct in any module is marked as direct in the merged result.
+     *
      * @param projectDirectory directory containing the project {@code pom.xml}
      * @return the resolved dependencies, the project's own declarations first
      * @throws IllegalArgumentException if the directory holds no {@code pom.xml}
@@ -89,13 +93,99 @@ public class MavenDependencyResolver {
     /**
      * Resolves the dependency tree including its parent → child edges.
      *
+     * <p>For multi-module projects the graphs of all declared submodules are merged. If a module
+     * directory does not contain a {@code pom.xml} it is silently skipped (the module may not be a
+     * Java project).
+     *
      * @throws IllegalArgumentException if the directory holds no {@code pom.xml}
      * @throws IllegalStateException    if the POM cannot be read or the tree cannot be resolved
      */
     DependencyGraph resolveGraph(Path projectDirectory) {
         Model project = buildEffectiveModel(locatePom(projectDirectory));
+        List<String> modules = project.getModules();
+        if (modules != null && !modules.isEmpty()) {
+            return resolveMultiModule(projectDirectory, project, modules);
+        }
         DependencyNode root = collectDependencies(project).getRoot();
         return toGraph(project, root);
+    }
+
+    /**
+     * Merges dependency graphs from all submodules of an aggregator POM into a single graph.
+     * Submodule directories that have no {@code pom.xml} are skipped quietly.
+     */
+    private DependencyGraph resolveMultiModule(Path rootDirectory, Model rootModel, List<String> modules) {
+        String rootKey = projectKey(rootModel);
+        Map<String, Set<String>> mergedChildren = new LinkedHashMap<>();
+        Map<String, ResolvedDependency> mergedResolved = new LinkedHashMap<>();
+        mergedChildren.put(rootKey, new LinkedHashSet<>());
+
+        // Include any dependencies declared on the root POM itself (rare but valid).
+        if (!rootModel.getDependencies().isEmpty()) {
+            DependencyNode rootNode = collectDependencies(rootModel).getRoot();
+            DependencyGraph rootGraph = toGraph(rootModel, rootNode);
+            mergeGraph(rootGraph, rootKey, mergedChildren, mergedResolved);
+        }
+
+        for (String module : modules) {
+            Path modulePom = rootDirectory.resolve(module).resolve(POM_FILE_NAME);
+            if (!Files.isRegularFile(modulePom)) {
+                continue; // not a Maven module — skip
+            }
+            try {
+                Model moduleModel = buildEffectiveModel(modulePom);
+                if (moduleModel.getDependencies().isEmpty()) {
+                    continue;
+                }
+                DependencyNode moduleRoot = collectDependencies(moduleModel).getRoot();
+                DependencyGraph moduleGraph = toGraph(moduleModel, moduleRoot);
+                mergeGraph(moduleGraph, rootKey, mergedChildren, mergedResolved);
+            } catch (Exception ex) {
+                // Log and continue — a broken submodule should not abort the whole scan.
+                org.slf4j.LoggerFactory.getLogger(MavenDependencyResolver.class)
+                        .warn("Skipping submodule '{}': {}", module, ex.getMessage());
+            }
+        }
+
+        List<ResolvedDependency> dependencies = new ArrayList<>();
+        mergedChildren.get(rootKey).stream().map(mergedResolved::get).forEach(dependencies::add);
+        mergedResolved.values().stream()
+                .filter(dep -> !dep.direct())
+                .filter(dep -> !dependencies.contains(dep))
+                .forEach(dependencies::add);
+        return new DependencyGraph(rootKey, mergedChildren, dependencies);
+    }
+
+    /**
+     * Merges a submodule graph into the accumulator maps.
+     * Direct dependencies of a submodule become direct children of the aggregator root.
+     * If a dependency is already present as transitive, it is promoted to direct.
+     */
+    private static void mergeGraph(
+            DependencyGraph source,
+            String aggregatorKey,
+            Map<String, Set<String>> targetChildren,
+            Map<String, ResolvedDependency> targetResolved) {
+        for (ResolvedDependency dep : source.dependencies()) {
+            String key = "%s:%s:%s".formatted(dep.groupId(), dep.artifactId(), dep.version());
+            if (dep.direct()) {
+                targetChildren
+                        .computeIfAbsent(aggregatorKey, k -> new LinkedHashSet<>())
+                        .add(key);
+            }
+            // Promote transitive → direct if seen as direct in any module; never demote.
+            targetResolved.merge(key, dep, (existing, incoming) -> incoming.direct() ? incoming : existing);
+        }
+        // Also carry over all child edges from the submodule graph (transitive edges).
+        for (Map.Entry<String, Set<String>> entry : source.childrenByParent().entrySet()) {
+            String parentKey = entry.getKey();
+            if (parentKey.equals(source.rootKey())) {
+                continue; // submodule root edges are re-rooted to aggregatorKey above
+            }
+            targetChildren
+                    .computeIfAbsent(parentKey, k -> new LinkedHashSet<>())
+                    .addAll(entry.getValue());
+        }
     }
 
     private CollectResult collectDependencies(Model project) {

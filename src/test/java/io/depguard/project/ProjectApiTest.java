@@ -33,7 +33,7 @@ class ProjectApiTest extends BaseIT {
         assertThat(registered.name()).isEqualTo("payment-service");
         // the ".git" suffix is normalised away before persisting
         assertThat(registered.repositoryUrl()).isEqualTo("https://github.com/depguard-it/payment-service");
-        assertThat(registered.defaultBranch()).isEqualTo("main");
+        assertThat(registered.defaultBranch()).isNull();
         assertThat(registered.createdAt()).isNotNull();
         assertThat(created.getResponseHeaders().getLocation()).isNotNull();
         assertThat(created.getResponseHeaders().getLocation().getPath()).isEqualTo("/api/projects/" + registered.id());

@@ -70,7 +70,7 @@ DepGuard is built to answer that question.
 | G5 | Generate compatible upgrade recommendations for HIGH and CRITICAL risk dependencies, preferring same-major upgrades and clearly annotating cross-major migrations |
 | G6 | Record scan reproducibility metadata (commit SHA, branch, data-source fetch timestamps) on every scan |
 | G7 | Expose all results through a REST API returning a complete, structured health report |
-| G8 | Be runnable locally with a single `docker compose up` command |
+| G8 | Be runnable locally with Spring Boot Docker Compose support and a single `./mvnw spring-boot:run` command |
 
 ---
 
@@ -96,7 +96,7 @@ DepGuard is built to answer that question.
 DepGuard is implemented as a **modular monolith** using Spring Boot 4.x + Java 21. All domain
 modules (project, scan, dependency, eol, vulnerability, risk, remediation) run in a single
 Spring Boot process with a shared PostgreSQL database. Module boundaries are enforced by package
-structure and explicit service interfaces — there are no direct cross-module repository calls.
+structure; the MVP allows query composition across module repositories for its consolidated report.
 
 This architecture is chosen deliberately for the MVP timeline. The module boundaries are designed
 to extract into independent services backed by a Kafka event bus in a future phase without
@@ -118,7 +118,7 @@ requiring logic rewrites.
 │                                                                     │
 └───────────────────────────────┬─────────────────────────────────────┘
                                 │
-                          PostgreSQL 16
+                          PostgreSQL 18
 ```
 
 ### 4.2 Scan Pipeline
@@ -443,8 +443,8 @@ reasons: ["Advisory GHSA-bbbb UNKNOWN severity (+20, conservative)", "direct (×
 ### 8.5 Overall Project Health
 
 The overall project health is the highest risk level present across all `RiskAssessment` records
-for the scan. If any assessment has `confidence = LOW`, the overall report includes a warning
-flag: `"containsUnknownEolDependencies": true`.
+for the scan. Dependencies with incomplete EOL data retain `confidence = LOW` and
+`eolStatus = UNKNOWN` in the report so callers can surface an appropriate warning.
 
 ---
 
@@ -471,9 +471,7 @@ retrieved from the external API. The scan report's `dataSources` field exposes:
 ```json
 {
   "dataSources": {
-    "eolApi": "endoflife.date",
     "eolFetchedAt": "2026-09-21T16:01:12Z",
-    "advisoryApi": "api.osv.dev",
     "advisoryFetchedAt": "2026-09-21T16:01:15Z"
   }
 }
@@ -491,7 +489,7 @@ allow users to understand the freshness of the data and trigger re-scans when ne
 
 **projects**
 ```
-id              UUID        PK
+id              VARCHAR(26) PK (TSID)
 name            VARCHAR     NOT NULL
 repository_url  VARCHAR     NOT NULL
 default_branch  VARCHAR     DEFAULT 'main'
@@ -500,8 +498,8 @@ created_at      TIMESTAMP   NOT NULL
 
 **scans**
 ```
-id              UUID        PK
-project_id      UUID        FK → projects.id
+id              VARCHAR(26) PK (TSID)
+project_id      VARCHAR(26) FK → projects.id
 status          VARCHAR     NOT NULL  (PENDING|RUNNING|COMPLETED|FAILED)
 commit_sha      VARCHAR
 branch          VARCHAR
@@ -512,7 +510,7 @@ completed_at    TIMESTAMP
 
 **dependencies**
 ```
-id              UUID        PK
+id              VARCHAR(26) PK (TSID)
 group_id        VARCHAR     NOT NULL
 artifact_id     VARCHAR     NOT NULL
 version         VARCHAR     NOT NULL
@@ -522,8 +520,8 @@ UNIQUE (group_id, artifact_id, version, ecosystem)
 
 **scan_dependencies**
 ```
-scan_id         UUID        FK → scans.id
-dependency_id   UUID        FK → dependencies.id
+scan_id         VARCHAR(26) FK → scans.id
+dependency_id   VARCHAR(26) FK → dependencies.id
 scope           VARCHAR     NOT NULL  (compile|test|provided|runtime)
 direct          BOOLEAN     NOT NULL
 PRIMARY KEY (scan_id, dependency_id)
@@ -531,9 +529,8 @@ PRIMARY KEY (scan_id, dependency_id)
 
 **eol_records**
 ```
-id                    UUID        PK
-scan_id               UUID        FK → scans.id
-dependency_id         UUID        FK → dependencies.id
+scan_id               VARCHAR(26) FK → scans.id
+dependency_id         VARCHAR(26) FK → dependencies.id
 status                VARCHAR     NOT NULL  (SUPPORTED|MAINTENANCE|EOL|UNKNOWN)
 eol_date              DATE
 source                VARCHAR     NOT NULL  (API|FALLBACK|NO_MAPPING)
@@ -543,7 +540,7 @@ UNIQUE (scan_id, dependency_id)
 
 **vulnerability_records** *(replaces cve_records — covers GHSA, CVE, OSV IDs)*
 ```
-id                    UUID        PK
+id                    VARCHAR(26) PK (TSID)
 osv_id                VARCHAR     NOT NULL UNIQUE
 summary               TEXT
 severity              VARCHAR     NOT NULL  (LOW|MEDIUM|HIGH|CRITICAL|UNKNOWN)
@@ -555,16 +552,16 @@ data_source_fetched_at TIMESTAMP
 
 **dependency_vulnerabilities**
 ```
-dependency_id         UUID        FK → dependencies.id
-vulnerability_id      UUID        FK → vulnerability_records.id
-PRIMARY KEY (dependency_id, vulnerability_id)
+dependency_id         VARCHAR(26) FK → dependencies.id
+scan_id               VARCHAR(26) FK → scans.id
+vulnerability_record_id VARCHAR(26) FK → vulnerability_records.id
+PRIMARY KEY (dependency_id, scan_id, vulnerability_record_id)
 ```
 
 **risk_assessments**
 ```
-id              UUID        PK
-scan_id         UUID        FK → scans.id
-dependency_id   UUID        FK → dependencies.id
+scan_id         VARCHAR(26) FK → scans.id
+dependency_id   VARCHAR(26) FK → dependencies.id
 risk_level      VARCHAR     NOT NULL  (LOW|MEDIUM|HIGH|CRITICAL)
 heuristic_score INTEGER     NOT NULL
 confidence      VARCHAR     NOT NULL  (HIGH|MEDIUM|LOW)
@@ -574,9 +571,9 @@ UNIQUE (scan_id, dependency_id)
 
 **remediation_recommendations**
 ```
-id                      UUID        PK
-scan_id                 UUID        FK → scans.id
-dependency_id           UUID        FK → dependencies.id
+id                      VARCHAR(26) PK (TSID)
+scan_id                 VARCHAR(26) FK → scans.id
+dependency_id           VARCHAR(26) FK → dependencies.id
 current_version         VARCHAR     NOT NULL
 recommended_version     VARCHAR     NOT NULL
 upgrade_type            VARCHAR     NOT NULL  (PATCH|MINOR|MAJOR)
@@ -632,24 +629,21 @@ CREATE INDEX idx_vuln_records_osv_id        ON vulnerability_records(osv_id);
 **POST /api/projects/{id}/scans**
 ```json
 // Response 202 — immediate
-{ "scanId": "7c9e6679-7425-40de-944b-e07fc1f90ae7" }
+{ "scanId": "0RZKMN9SVD511" }
 ```
 
 **GET /api/scans/{id}/report**
 ```json
 {
-  "scanId": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
+  "scanId": "0RZKMN9SVD511",
   "projectName": "payment-service",
   "repositoryUrl": "https://github.com/user/payment-service",
   "commitSha": "a3f9d1c8b2e4f6a0d5c7e9f1b3a5d7e9c1a3b5d7",
   "branch": "main",
   "scannedAt": "2026-09-21T16:00:00Z",
   "overallHealth": "HIGH",
-  "containsUnknownEolDependencies": true,
   "dataSources": {
-    "eolApi": "endoflife.date",
     "eolFetchedAt": "2026-09-21T16:01:12Z",
-    "advisoryApi": "api.osv.dev",
     "advisoryFetchedAt": "2026-09-21T16:01:15Z"
   },
   "summary": {
@@ -677,7 +671,7 @@ CREATE INDEX idx_vuln_records_osv_id        ON vulnerability_records(osv_id);
       "riskLevel": "CRITICAL",
       "heuristicScore": 72,
       "confidence": "HIGH",
-      "riskReasons": ["EOL (+30)", "Advisory GHSA-xxxx HIGH (+30)", "direct (×1.0)"],
+      "riskReasons": ["EOL (+30)", "Advisory HIGH (+30)", "Direct dependency (×1.0)"],
       "recommendation": {
         "recommendedVersion": "3.4.1",
         "upgradeType": "MAJOR",
@@ -708,7 +702,7 @@ CREATE INDEX idx_vuln_records_osv_id        ON vulnerability_records(osv_id);
 ```json
 {
   "error": "NOT_FOUND",
-  "message": "Scan not found: 7c9e6679-7425-40de-944b-e07fc1f90ae7",
+  "message": "Scan not found: 0RZKMN9SVD511",
   "timestamp": "2026-09-21T16:00:00Z"
 }
 ```

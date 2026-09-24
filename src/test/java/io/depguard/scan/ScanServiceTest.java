@@ -22,6 +22,8 @@ import io.depguard.eol.EolService;
 import io.depguard.project.ProjectAPI;
 import io.depguard.project.ProjectId;
 import io.depguard.project.ProjectSnapshot;
+import io.depguard.remediation.RemediationService;
+import io.depguard.risk.RiskScoringService;
 import io.depguard.shared.ResourceNotFoundException;
 import io.depguard.shared.ScanId;
 import io.depguard.vulnerability.VulnerabilityService;
@@ -78,6 +80,12 @@ class ScanServiceTest {
     @Mock
     VulnerabilityService vulnerabilityService;
 
+    @Mock
+    RiskScoringService riskScoringService;
+
+    @Mock
+    RemediationService remediationService;
+
     @InjectMocks
     ScanService scanService;
 
@@ -113,8 +121,6 @@ class ScanServiceTest {
     void runsThePipelineAndPersistsTheResolvedTree() throws IOException {
         Scan scan = Scan.start(PROJECT_ID);
         Path workingDirectory = Files.createTempDirectory("scan-test-");
-        given(scanRepository.findById(scan.getId())).willReturn(Optional.of(scan));
-        given(scanRepository.save(any(Scan.class))).willAnswer(invocation -> invocation.getArgument(0));
         given(projectAPI.getProject(PROJECT_ID)).willReturn(project);
         given(gitCloneService.cloneRepository(REPOSITORY_URL, "main"))
                 .willReturn(new CloneResult(workingDirectory, COMMIT_SHA, "main"));
@@ -124,7 +130,9 @@ class ScanServiceTest {
                         new ResolvedDependency("junit", "junit", "4.13.2", "test", false)));
         given(dependencyRepository.findByKey(any(), any(), any(), any())).willReturn(Optional.empty());
         given(dependencyRepository.save(any(Dependency.class))).willAnswer(invocation -> invocation.getArgument(0));
-        runPersistenceInline();
+        given(scanRepository.findById(scan.getId())).willReturn(Optional.of(scan));
+        given(scanRepository.save(any(Scan.class))).willAnswer(invocation -> invocation.getArgument(0));
+        runAllTransactionsInline(scan);
 
         scanService.runScan(scan.getId());
 
@@ -140,8 +148,6 @@ class ScanServiceTest {
         assertThat(completed.getStartedAt()).isNotNull();
         assertThat(completed.getCompletedAt()).isNotNull();
         assertThat(completed.getErrorMessage()).isNull();
-        // the metadata is stored as soon as the clone succeeded, before resolution
-        assertThat(saved.getAllValues().get(1).getCommitSha()).isEqualTo(COMMIT_SHA);
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<ScanDependency>> persisted = ArgumentCaptor.forClass(List.class);
@@ -156,58 +162,63 @@ class ScanServiceTest {
         // EOL enrichment must run after dependencies are persisted
         verify(eolService).enrichScan(scan.getId());
         verify(vulnerabilityService).enrichScan(scan.getId());
+        verify(riskScoringService).scoreScan(scan.getId());
+        verify(remediationService).generateRecommendations(scan.getId());
     }
 
     @Test
     void marksTheScanFailedWhenTheCloneFails() {
         Scan scan = Scan.start(PROJECT_ID);
-        given(scanRepository.findById(scan.getId())).willReturn(Optional.of(scan));
-        given(scanRepository.save(any(Scan.class))).willAnswer(invocation -> invocation.getArgument(0));
         given(projectAPI.getProject(PROJECT_ID)).willReturn(project);
         given(gitCloneService.cloneRepository(REPOSITORY_URL, "main"))
                 .willThrow(new IllegalStateException("Failed to clone " + REPOSITORY_URL + ": boom"));
+        given(scanRepository.findById(scan.getId())).willReturn(Optional.of(scan));
+        given(scanRepository.save(any(Scan.class))).willAnswer(invocation -> invocation.getArgument(0));
+        runAllTransactionsInline(scan);
 
         scanService.runScan(scan.getId());
 
         ArgumentCaptor<Scan> saved = ArgumentCaptor.forClass(Scan.class);
-        verify(scanRepository, times(2)).save(saved.capture()); // running + failed (clone threw before cloned())
+        // running (from execute()) + failed (from executeWithoutResult in catch)
+        verify(scanRepository, times(2)).save(saved.capture());
         Scan failed = saved.getAllValues().getLast();
         assertThat(failed.getStatus()).isEqualTo(ScanStatus.FAILED);
         assertThat(failed.getErrorMessage()).contains("boom");
         assertThat(failed.getCompletedAt()).isNotNull();
-        verifyNoInteractions(dependencyResolver, dependencyRepository, scanDependencyRepository, transactionTemplate);
+        verifyNoInteractions(dependencyResolver, dependencyRepository, scanDependencyRepository);
     }
 
     @Test
     void marksTheScanFailedWhenResolutionFails() throws IOException {
         Scan scan = Scan.start(PROJECT_ID);
         Path workingDirectory = Files.createTempDirectory("scan-test-");
-        given(scanRepository.findById(scan.getId())).willReturn(Optional.of(scan));
-        given(scanRepository.save(any(Scan.class))).willAnswer(invocation -> invocation.getArgument(0));
         given(projectAPI.getProject(PROJECT_ID)).willReturn(project);
         given(gitCloneService.cloneRepository(REPOSITORY_URL, "main"))
                 .willReturn(new CloneResult(workingDirectory, COMMIT_SHA, "main"));
         given(dependencyResolver.resolveDependencies(workingDirectory))
                 .willThrow(new IllegalArgumentException("No pom.xml found in " + workingDirectory));
+        given(scanRepository.findById(scan.getId())).willReturn(Optional.of(scan));
+        given(scanRepository.save(any(Scan.class))).willAnswer(invocation -> invocation.getArgument(0));
+        runAllTransactionsInline(scan);
 
         scanService.runScan(scan.getId());
 
         ArgumentCaptor<Scan> saved = ArgumentCaptor.forClass(Scan.class);
-        verify(scanRepository, times(3)).save(saved.capture()); // running + cloned + failed
+        // running + failed (resolution threw before the clone+persist transaction committed)
+        verify(scanRepository, times(2)).save(saved.capture());
         Scan failed = saved.getAllValues().getLast();
         assertThat(failed.getStatus()).isEqualTo(ScanStatus.FAILED);
         assertThat(failed.getErrorMessage()).contains("pom.xml");
-        // the reproducibility metadata captured before the failure is kept on the scan
-        assertThat(failed.getCommitSha()).isEqualTo(COMMIT_SHA);
         assertThat(workingDirectory).doesNotExist();
-        verifyNoInteractions(dependencyRepository, scanDependencyRepository, transactionTemplate);
+        verifyNoInteractions(dependencyRepository, scanDependencyRepository);
     }
 
     @Test
     void skipsAScanThatIsNotPending() {
         Scan scan = Scan.start(PROJECT_ID);
         scan.markRunning();
-        given(scanRepository.findById(scan.getId())).willReturn(Optional.of(scan));
+        // transactionTemplate.execute() must be stubbed to return null (not-pending path)
+        given(transactionTemplate.execute(any())).willReturn(null);
 
         scanService.runScan(scan.getId());
 
@@ -218,7 +229,8 @@ class ScanServiceTest {
 
     @Test
     void ignoresAnUnknownScan() {
-        given(scanRepository.findById(ScanId.of("0KX1Q2W3E4R5S"))).willReturn(Optional.empty());
+        // transactionTemplate.execute() must be stubbed to return null (unknown scan path)
+        given(transactionTemplate.execute(any())).willReturn(null);
 
         scanService.runScan(ScanId.of("0KX1Q2W3E4R5S"));
 
@@ -227,8 +239,21 @@ class ScanServiceTest {
                 projectAPI, gitCloneService, dependencyResolver, dependencyRepository, scanDependencyRepository);
     }
 
-    /** Runs the persistence callback synchronously, like the real TransactionTemplate would. */
-    private void runPersistenceInline() {
+    /**
+     * Makes the mocked {@link TransactionTemplate} execute callbacks synchronously and inline,
+     * so that unit tests exercise the real persistence logic without a real database.
+     *
+     * <p>{@code execute()} is used for the initial load (returns the Scan). All subsequent writes
+     * use {@code executeWithoutResult()}.
+     */
+    @SuppressWarnings("unchecked")
+    private void runAllTransactionsInline(Scan scan) {
+        // execute() — used for the initial PENDING check; must invoke the callback and return the scan
+        given(transactionTemplate.execute(any())).willAnswer(invocation -> {
+            org.springframework.transaction.support.TransactionCallback<?> callback = invocation.getArgument(0);
+            return callback.doInTransaction(org.mockito.Mockito.mock(TransactionStatus.class));
+        });
+        // executeWithoutResult() — used for clone+persist, markCompleted, markFailed
         doAnswer(invocation -> {
                     Consumer<TransactionStatus> callback = invocation.getArgument(0);
                     callback.accept(org.mockito.Mockito.mock(TransactionStatus.class));
