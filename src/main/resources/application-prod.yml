@@ -3,3 +3,8 @@ spring:
   docker:
     compose:
       enabled: false
+
+  datasource:
+    url: jdbc:postgresql://ep-shiny-unit-b504kzek-pooler.c-7.us-east-2.aws.neon.tech/neondb?sslmode=require&channel_binding=require
+    username: neondb_owner
+    password: ${DB_PASSWORD:npg_jEUx4WX5RcHo}
