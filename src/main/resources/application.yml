@@ -53,3 +53,7 @@ springdoc:
 logging:
   level:
     io.depguard: INFO
+
+depguard:
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173}
