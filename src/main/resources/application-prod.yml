@@ -1,0 +1,5 @@
+# Production profile — applied when SPRING_PROFILES_ACTIVE=prod (set as env var on Render)
+spring:
+  docker:
+    compose:
+      enabled: false
