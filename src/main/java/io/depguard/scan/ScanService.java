@@ -20,6 +20,7 @@ import io.depguard.shared.ScanId;
 import io.depguard.vulnerability.VulnerabilityService;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -170,6 +171,20 @@ public class ScanService {
                 ? scanDependencyRepository.findDependenciesOfScan(scanId.id())
                 : List.of();
         return ScanResponse.from(scan, dependencies);
+    }
+
+    /**
+     * Returns the most recent scan for a project, or empty if none exists.
+     */
+    @Transactional(readOnly = true)
+    public Optional<ScanResponse> getLatestScan(ProjectId projectId) {
+        return scanRepository.findLatestByProjectId(projectId).map(scan -> {
+            List<ScanDependencyView> dependencies = scan.getStatus() == ScanStatus.COMPLETED
+                    ? scanDependencyRepository.findDependenciesOfScan(
+                            scan.getId().id())
+                    : List.of();
+            return ScanResponse.from(scan, dependencies);
+        });
     }
 
     private static String errorMessageOf(Exception ex) {

@@ -49,6 +49,15 @@ class ScanController {
         return scanService.getScan(id);
     }
 
+    @Operation(summary = "Get the latest scan for a project")
+    @GetMapping("/projects/{projectId}/scans/latest")
+    ResponseEntity<ScanResponse> getLatestScan(@PathVariable ProjectId projectId) {
+        return scanService
+                .getLatestScan(projectId)
+                .map(ResponseEntity::ok)
+                .orElse(ResponseEntity.noContent().build());
+    }
+
     @Operation(summary = "Get remediation recommendations")
     @GetMapping("/scans/{id}/recommendations")
     java.util.List<RemediationResponse> getRecommendations(@PathVariable ScanId id) {
