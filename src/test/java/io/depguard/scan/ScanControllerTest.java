@@ -37,6 +37,7 @@ class ScanControllerTest {
             Instant.parse("2026-09-22T10:00:20Z"),
             null,
             1,
+            null,
             List.of(new ScanDependencyResponse("org.springframework", "spring-core", "6.1.8", "compile", true)));
 
     @Autowired
@@ -100,7 +101,7 @@ class ScanControllerTest {
     @Test
     void returnsARunningScanWithoutDependencies() {
         ScanResponse running = new ScanResponse(
-                SCAN_ID, "RUNNING", null, null, Instant.parse("2026-09-22T10:00:00Z"), null, null, 0, List.of());
+                SCAN_ID, "RUNNING", null, null, Instant.parse("2026-09-22T10:00:00Z"), null, null, 0, null, List.of());
         given(scanService.getScan(ScanId.of(SCAN_ID))).willReturn(running);
 
         assertThat(mockMvc.get().uri("/api/scans/{id}", SCAN_ID))

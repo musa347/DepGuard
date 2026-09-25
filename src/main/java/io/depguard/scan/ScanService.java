@@ -9,11 +9,16 @@ import io.depguard.dependency.ScanDependency;
 import io.depguard.dependency.ScanDependencyId;
 import io.depguard.dependency.ScanDependencyRepository;
 import io.depguard.dependency.ScanDependencyView;
+import io.depguard.eol.EolRepository;
 import io.depguard.eol.EolService;
+import io.depguard.eol.EolStatus;
 import io.depguard.project.ProjectAPI;
 import io.depguard.project.ProjectId;
 import io.depguard.project.ProjectSnapshot;
 import io.depguard.remediation.RemediationService;
+import io.depguard.risk.RiskAssessment;
+import io.depguard.risk.RiskLevel;
+import io.depguard.risk.RiskRepository;
 import io.depguard.risk.RiskScoringService;
 import io.depguard.shared.ResourceNotFoundException;
 import io.depguard.shared.ScanId;
@@ -58,6 +63,8 @@ public class ScanService {
     private final VulnerabilityService vulnerabilityService;
     private final RiskScoringService riskScoringService;
     private final RemediationService remediationService;
+    private final RiskRepository riskRepository;
+    private final EolRepository eolRepository;
 
     ScanService(
             ScanRepository scanRepository,
@@ -70,7 +77,9 @@ public class ScanService {
             EolService eolService,
             VulnerabilityService vulnerabilityService,
             RiskScoringService riskScoringService,
-            RemediationService remediationService) {
+            RemediationService remediationService,
+            RiskRepository riskRepository,
+            EolRepository eolRepository) {
         this.scanRepository = scanRepository;
         this.projectAPI = projectAPI;
         this.gitCloneService = gitCloneService;
@@ -82,6 +91,8 @@ public class ScanService {
         this.vulnerabilityService = vulnerabilityService;
         this.riskScoringService = riskScoringService;
         this.remediationService = remediationService;
+        this.riskRepository = riskRepository;
+        this.eolRepository = eolRepository;
     }
 
     /**
@@ -170,7 +181,7 @@ public class ScanService {
         List<ScanDependencyView> dependencies = scan.getStatus() == ScanStatus.COMPLETED
                 ? scanDependencyRepository.findDependenciesOfScan(scanId.id())
                 : List.of();
-        return ScanResponse.from(scan, dependencies);
+        return ScanResponse.from(scan, dependencies, riskSummary(scan));
     }
 
     /**
@@ -183,8 +194,31 @@ public class ScanService {
                     ? scanDependencyRepository.findDependenciesOfScan(
                             scan.getId().id())
                     : List.of();
-            return ScanResponse.from(scan, dependencies);
+            return ScanResponse.from(scan, dependencies, riskSummary(scan));
         });
+    }
+
+    private ScanResponse.RiskSummary riskSummary(Scan scan) {
+        if (scan.getStatus() != ScanStatus.COMPLETED) {
+            return null;
+        }
+        List<RiskAssessment> risks = riskRepository.findByIdScanId(scan.getId().id());
+        long eolCount = eolRepository.findByScanId(scan.getId().id()).stream()
+                .filter(e -> e.getStatus() == EolStatus.EOL)
+                .count();
+        RiskLevel overall = risks.stream()
+                .map(RiskAssessment::getRiskLevel)
+                .max(java.util.Comparator.comparingInt(RiskLevel::ordinal))
+                .orElse(RiskLevel.UNKNOWN);
+        return new ScanResponse.RiskSummary(
+                overall,
+                risks.stream()
+                        .filter(r -> r.getRiskLevel() == RiskLevel.CRITICAL)
+                        .count(),
+                risks.stream().filter(r -> r.getRiskLevel() == RiskLevel.HIGH).count(),
+                risks.stream().filter(r -> r.getRiskLevel() == RiskLevel.MEDIUM).count(),
+                risks.stream().filter(r -> r.getRiskLevel() == RiskLevel.LOW).count(),
+                eolCount);
     }
 
     private static String errorMessageOf(Exception ex) {

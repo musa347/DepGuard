@@ -1,6 +1,7 @@
 package io.depguard.scan;
 
 import io.depguard.dependency.ScanDependencyView;
+import io.depguard.risk.RiskLevel;
 import java.time.Instant;
 import java.util.List;
 
@@ -17,9 +18,18 @@ public record ScanResponse(
         Instant completedAt,
         String errorMessage,
         long dependencyCount,
+        RiskSummary riskSummary,
         List<ScanDependencyResponse> dependencies) {
 
-    static ScanResponse from(Scan scan, List<ScanDependencyView> dependencies) {
+    public record RiskSummary(
+            RiskLevel overallHealth,
+            long criticalCount,
+            long highCount,
+            long mediumCount,
+            long lowCount,
+            long eolCount) {}
+
+    static ScanResponse from(Scan scan, List<ScanDependencyView> dependencies, RiskSummary riskSummary) {
         return new ScanResponse(
                 scan.getId().id(),
                 scan.getStatus().name(),
@@ -29,6 +39,7 @@ public record ScanResponse(
                 scan.getCompletedAt(),
                 scan.getErrorMessage(),
                 dependencies.size(),
+                riskSummary,
                 dependencies.stream().map(ScanDependencyResponse::from).toList());
     }
 }
